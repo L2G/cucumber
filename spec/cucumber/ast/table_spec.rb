@@ -405,7 +405,21 @@ module Cucumber
             t1.hashes
           end.should raise_error(%{2 headers matched /uk/: ["Cuke", "Duke"]})
         end
-        
+
+        it 'should accept surplus rows at the beginning of a table' do
+          expect do
+            actual   = [
+              {"filter"=>"Project", "value"=>""},
+              {"filter"=>"Source" , "value"=>"French"},
+              {"filter"=>"Target" , "value"=>""}
+            ]
+            expected = Table.new [
+              {"filter"=>"Source", "value"=>"French"}
+            ]
+            expected.diff! actual, surplus_row: false
+          end.to_not raise_error Cucumber::Ast::Table::Different
+        end
+
         describe "raising" do
           before do
             @t = table(%{
