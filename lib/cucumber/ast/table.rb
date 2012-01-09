@@ -308,17 +308,20 @@ module Cucumber
         attr_reader :expected, :actual, :options
 
         def initialize(expected, actual, options={})
-          @expected, @actual = expected, ensure_table(actual)
+          @expected = expected
+          @actual = ensure_table(actual)
           @options = {:missing_row => true, :surplus_row => true, :missing_col => true, :surplus_col => false}.merge(options)
         end
 
-        def diff!
-          actual.send :convert_headers!
-          actual.send :convert_columns!
+        def convert!(table)
+          table.send :convert_headers!
+          table.send :convert_columns!
+        end
 
-          expected.send :ensure_green!
-          expected.send :convert_headers!
-          expected.send :convert_columns!
+        def diff!
+          convert!(actual)
+          ensure_green!(expected)
+          convert!(expected)
 
           original_width = expected.cell_matrix[0].length
           actual_cell_matrix = expected.send :pad!, actual.cell_matrix
@@ -370,12 +373,12 @@ module Cucumber
           end
 
           expected.send :clear_cache!
-          should_raise = 
+          should_raise =
             missing_row_pos && options[:missing_row] ||
             insert_row_pos  && options[:surplus_row] ||
             missing_col     && options[:missing_col] ||
             surplus_col     && options[:surplus_col]
-          raise Different.new(self) if should_raise
+          raise Different.new(expected) if should_raise
         end
 
         private
@@ -383,6 +386,14 @@ module Cucumber
         def ensure_table(table_or_array) #:nodoc:
           return table_or_array if Table === table_or_array
           Table.new(table_or_array)
+        end
+
+        def ensure_green!(table) #:nodoc:
+          each_cell(table) {|cell| cell.status = :passed}
+        end
+
+        def each_cell(table, &proc) #:nodoc:
+          table.cell_matrix.each{|row| row.each(&proc)}
         end
 
         def require_diff_lcs #:nodoc:
@@ -604,14 +615,6 @@ module Cucumber
       def hashes_to_array(hashes) #:nodoc:
         header = hashes[0].keys
         [header] + hashes.map{|hash| header.map{|key| hash[key]}}
-      end
-
-      def ensure_green! #:nodoc:
-        each_cell{|cell| cell.status = :passed}
-      end
-
-      def each_cell(&proc) #:nodoc:
-        cell_matrix.each{|row| row.each(&proc)}
       end
 
       def mark_as_missing(col) #:nodoc:
