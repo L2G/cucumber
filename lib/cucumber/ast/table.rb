@@ -308,21 +308,19 @@ module Cucumber
         attr_reader :expected, :actual, :options
 
         def initialize(expected, actual, options={})
-          @expected = expected
-          @actual = ensure_table(actual)
+          @expected = ensure_green!(convert!(expected))
+          @actual = convert!(ensure_table(actual))
           @options = {:missing_row => true, :surplus_row => true, :missing_col => true, :surplus_col => false}.merge(options)
         end
 
         def convert!(table)
-          table.send :convert_headers!
-          table.send :convert_columns!
+          table.tap do
+            table.send :convert_headers!
+            table.send :convert_columns!
+          end
         end
 
         def diff!
-          convert!(actual)
-          ensure_green!(expected)
-          convert!(expected)
-
           original_width = expected.cell_matrix[0].length
           actual_cell_matrix = expected.send :pad!, actual.cell_matrix
           padded_width = expected.cell_matrix[0].length
@@ -390,7 +388,9 @@ module Cucumber
         end
 
         def ensure_green!(table) #:nodoc:
-          each_cell(table) {|cell| cell.status = :passed}
+          table.tap do
+            each_cell(table) {|cell| cell.status = :passed}
+          end
         end
 
         def each_cell(table, &proc) #:nodoc:
