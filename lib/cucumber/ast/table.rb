@@ -379,6 +379,7 @@ module Cucumber
             missing_col     && options[:missing_col] ||
             surplus_col     && options[:surplus_col]
           raise Different.new(expected) if should_raise
+          expected
         end
 
         private
