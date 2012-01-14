@@ -304,11 +304,15 @@ module Cucumber
         Differentiator.new(self, other_table, options).diff!
       end
 
+      attr_writer :cell_matrix
+
       class Differentiator
-        attr_reader :expected, :actual, :options
+        attr_reader :expected, :actual, :options, :diff
 
         def initialize(expected, actual, options={})
+          require_diff_lcs
           @expected = ensure_green!(convert!(expected))
+          @diff = expected.dup
           @actual = convert!(ensure_table(actual))
           @options = {:missing_row => true, :surplus_row => true, :missing_col => true, :surplus_col => false}.merge(options)
         end
@@ -320,17 +324,30 @@ module Cucumber
           end
         end
 
+        def original_width
+          expected.cell_matrix[0].length
+        end
+
+        def padded_width
+          diff.cell_matrix[0].length
+        end
+
+        def surplus_col?
+          padded_width > original_width
+        end
+
+        def missing_col?
+          diff.cell_matrix[0].detect{|cell| cell.status == :undefined}
+        end
+
+        def actual_cell_matrix
+          pad2(diff.cell_matrix, actual.cell_matrix)
+        end
+
         def diff!
-          original_width = expected.cell_matrix[0].length
-          actual_cell_matrix = expected.send :pad!, actual.cell_matrix
-          padded_width = expected.cell_matrix[0].length
+          diff.cell_matrix = pad1(diff.cell_matrix, actual.cell_matrix)
 
-          missing_col = expected.cell_matrix[0].detect{|cell| cell.status == :undefined}
-          surplus_col = padded_width > original_width
-
-          require_diff_lcs
-          expected.cell_matrix.extend(Diff::LCS)
-          changes = expected.cell_matrix.diff(actual_cell_matrix).flatten
+          changes = Diff::LCS.diff(diff.cell_matrix, actual_cell_matrix).flatten
 
           inserted = 0
           missing  = 0
@@ -344,16 +361,16 @@ module Cucumber
           changes.each do |change|
             if(change.action == '-')
               missing_row_pos = change.position + inserted
-              expected.cell_matrix[missing_row_pos].each{|cell| cell.status = :undefined}
+              diff.cell_matrix[missing_row_pos].each{|cell| cell.status = :undefined}
               row_indices.insert(missing_row_pos, nil)
               missing += 1
             else # '+'
               insert_row_pos = change.position + missing
               inserted_row = change.element
               inserted_row.each{|cell| cell.status = :comment}
-              expected.cell_matrix.insert(insert_row_pos, inserted_row)
+              diff.cell_matrix.insert(insert_row_pos, inserted_row)
               row_indices[insert_row_pos] = nil
-              inspect_rows(expected.cell_matrix[missing_row_pos], inserted_row) if last_change && last_change.action == '-'
+              inspect_rows(diff.cell_matrix[missing_row_pos], inserted_row) if last_change && last_change.action == '-'
               inserted += 1
             end
             last_change = change
@@ -361,7 +378,7 @@ module Cucumber
 
           actual_cell_matrix.each_with_index do |other_row, i|
             row_index = row_indices.index(i)
-            row = expected.cell_matrix[row_index] if row_index
+            row = diff.cell_matrix[row_index] if row_index
             if row
               (original_width..padded_width).each do |col_index|
                 surplus_cell = other_row[col_index]
@@ -370,17 +387,96 @@ module Cucumber
             end
           end
 
-          expected.send :clear_cache!
           should_raise =
             missing_row_pos && options[:missing_row] ||
             insert_row_pos  && options[:surplus_row] ||
-            missing_col     && options[:missing_col] ||
-            surplus_col     && options[:surplus_col]
-          raise Different.new(expected) if should_raise
-          expected
+            missing_col?    && options[:missing_col] ||
+            surplus_col?    && options[:surplus_col]
+          raise Different.new(diff) if should_raise
+          diff
         end
 
         private
+
+        # Pads our own cell_matrix and returns a cell matrix of same
+        # column width that can be used for diffing
+        def pad1(cell_matrix, other_cell_matrix) #:nodoc:
+          cols = cell_matrix.transpose
+          unmapped_cols = other_cell_matrix.transpose
+
+          mapped_cols = []
+
+          cols.each_with_index do |col, col_index|
+            header = col[0]
+            candidate_cols, unmapped_cols = unmapped_cols.partition do |other_col|
+              other_col[0] == header
+            end
+            raise "More than one column has the header #{header}" if candidate_cols.size > 2
+
+            other_padded_col = if candidate_cols.size == 1
+              # Found a matching column
+              candidate_cols[0]
+            else
+              mark_as_missing(cols[col_index])
+              (0...other_cell_matrix.length).map do |row|
+                val = row == 0 ? header.value : nil
+                SurplusCell.new(val, self, -1)
+              end
+            end
+            mapped_cols.insert(col_index, other_padded_col)
+          end
+
+          unmapped_cols.each_with_index do |col, col_index|
+            empty_col = (0...cell_matrix.length).map do |row| 
+              SurplusCell.new(nil, self, -1)
+            end
+            cols << empty_col
+          end
+
+          cols.transpose
+        end
+
+        def pad2(cell_matrix, other_cell_matrix) #:nodoc:
+          cols = cell_matrix.transpose
+          unmapped_cols = other_cell_matrix.transpose
+
+          mapped_cols = []
+
+          cols.each_with_index do |col, col_index|
+            header = col[0]
+            candidate_cols, unmapped_cols = unmapped_cols.partition do |other_col|
+              other_col[0] == header
+            end
+            raise "More than one column has the header #{header}" if candidate_cols.size > 2
+
+            other_padded_col = if candidate_cols.size == 1
+              # Found a matching column
+              candidate_cols[0]
+            else
+              mark_as_missing(cols[col_index])
+              (0...other_cell_matrix.length).map do |row|
+                val = row == 0 ? header.value : nil
+                SurplusCell.new(val, self, -1)
+              end
+            end
+            mapped_cols.insert(col_index, other_padded_col)
+          end
+
+          unmapped_cols.each_with_index do |col, col_index|
+            empty_col = (0...cell_matrix.length).map do |row| 
+              SurplusCell.new(nil, self, -1)
+            end
+            cols << empty_col
+          end
+
+          (mapped_cols + unmapped_cols).transpose
+        end
+
+        def mark_as_missing(col) #:nodoc:
+          col.each do |cell|
+            cell.status = :undefined
+          end
+        end
 
         def ensure_table(table_or_array) #:nodoc:
           return table_or_array if Table === table_or_array
@@ -569,46 +665,6 @@ module Cucumber
         @cell_class.new(raw_cell, self, line)
       end
 
-      # Pads our own cell_matrix and returns a cell matrix of same
-      # column width that can be used for diffing
-      def pad!(other_cell_matrix) #:nodoc:
-        clear_cache!
-        cols = cell_matrix.transpose
-        unmapped_cols = other_cell_matrix.transpose
-
-        mapped_cols = []
-
-        cols.each_with_index do |col, col_index|
-          header = col[0]
-          candidate_cols, unmapped_cols = unmapped_cols.partition do |other_col|
-            other_col[0] == header
-          end
-          raise "More than one column has the header #{header}" if candidate_cols.size > 2
-
-          other_padded_col = if candidate_cols.size == 1
-            # Found a matching column
-            candidate_cols[0]
-          else
-            mark_as_missing(cols[col_index])
-            (0...other_cell_matrix.length).map do |row|
-              val = row == 0 ? header.value : nil
-              SurplusCell.new(val, self, -1)
-            end
-          end
-          mapped_cols.insert(col_index, other_padded_col)
-        end
-
-        unmapped_cols.each_with_index do |col, col_index|
-          empty_col = (0...cell_matrix.length).map do |row| 
-            SurplusCell.new(nil, self, -1)
-          end
-          cols << empty_col
-        end
-
-        @cell_matrix = cols.transpose
-        (mapped_cols + unmapped_cols).transpose
-      end
-
       def ensure_array_of_array(array)
         Hash === array[0] ? hashes_to_array(array) : array
       end
@@ -616,12 +672,6 @@ module Cucumber
       def hashes_to_array(hashes) #:nodoc:
         header = hashes[0].keys
         [header] + hashes.map{|hash| header.map{|key| hash[key]}}
-      end
-
-      def mark_as_missing(col) #:nodoc:
-        col.each do |cell|
-          cell.status = :undefined
-        end
       end
 
       # Represents a row of cells or columns of cells
