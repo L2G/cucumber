@@ -422,7 +422,7 @@ module Cucumber
             expected = Table.new [
               {"filter"=>"Source", "value"=>"French"}
             ]
-            expected.diff! actual, surplus_row: false
+            expected.diff!(actual, :surplus_row => false)
           end.to_not raise_error Cucumber::Ast::Table::Different
         end
 
