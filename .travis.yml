@@ -1,5 +1,11 @@
 # Travis config for github:L2G/cucumber
 rvm: 
   - 1.9.3
+  - 1.9.2
   - 1.8.7
   - ruby-head
+
+# whitelist
+branches:
+  only:
+    - master
