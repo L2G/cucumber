@@ -1,4 +1,6 @@
-[![Build Status](https://secure.travis-ci.org/cucumber/cucumber.png)](http://travis-ci.org/cucumber/cucumber) [![Code Climate](https://codeclimate.com/badge.png)](https://codeclimate.com/github/cucumber/cucumber)
+[![Build Status](https://secure.travis-ci.org/L2G/cucumber.png)](http://travis-ci.org/L2G/cucumber) [![Code Climate](https://codeclimate.com/badge.png)](https://codeclimate.com/github/L2G/cucumber)
+
+**THIS IS A FORK USED FOR DEVELOPMENT PURPOSES ONLY!**
 
 The main website is at http://cukes.info/
 The documentation is at https://wiki.github.com/cucumber/cucumber/
