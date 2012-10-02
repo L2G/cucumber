@@ -9,9 +9,11 @@ if Cucumber::IRONRUBY
 	end
 end
 
-if Cucumber::WINDOWS_MRI
-  unless ENV['ANSICON']
-    STDERR.puts %{*** WARNING: You must use ANSICON 1.31 or higher (https://github.com/adoxa/ansicon/) to get coloured output on Windows}
+if Cucumber::WINDOWS_MRI and !ENV['ANSICON']
+  begin
+    require 'Win32/Console/ANSI'
+  rescue LoadError
+    STDERR.puts%{*** WARNING: Disabling color - neither ANSICON nor win32console found}
     Cucumber::Term::ANSIColor.coloring = false
   end
 end
